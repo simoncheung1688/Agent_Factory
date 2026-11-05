@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Factory · AI Control Framework</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">AF</span>
+        <div>
+          <p class="eyebrow">AI Control Framework</p>
+          <h1>Agent Factory</h1>
+        </div>
+      </div>
+      <ol class="flow">
+        <li>Request</li>
+        <li>Pipeline Runner</li>
+        <li>Pool lookup</li>
+        <li>Reuse or Factory</li>
+        <li>Execute</li>
+        <li>Response</li>
+      </ol>
+    </div>
+  </header>
+
+  <main>
+    <section class="card request-card">
+      <h2>Request</h2>
+      <p class="lede">Type any request. The Pipeline Runner asks the LLM for an agent specification, checks the Agent Pool, and calls the Agent Factory only on a miss. Predefined agents may read <code>agent_events</code>. Dynamic agents are blocked.</p>
+      <form id="request-form">
+        <label for="request">Natural language request</label>
+        <textarea id="request" name="request" rows="6" required>Investigate the RAN drop at cell site TST-12, check the SOP, and draft an incident report</textarea>
+        <div class="examples" id="examples"></div>
+        <div class="actions">
+          <button type="submit" id="run">Run pipeline</button>
+          <button type="button" id="reset" class="ghost">Clear pool</button>
+        </div>
+        <p class="hint" id="status" aria-live="polite">Ctrl+Enter runs the pipeline.</p>
+      </form>
+    </section>
+
+    <section class="card result-card">
+      <h2>Result</h2>
+      <div id="empty-result" class="empty">
+        Run a request to see the final response, and which agents were created or reused.
+      </div>
+      <div id="outcome" hidden>
+        <div class="counts" id="counts"></div>
+        <p class="intent" id="intent"></p>
+        <ul class="usage" id="usage"></ul>
+        <h3>Final response</h3>
+        <article id="deliverable" class="deliverable"></article>
+        <details>
+          <summary>Structured payloads passed between agents</summary>
+          <pre id="artifacts"></pre>
+        </details>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Run log</h2>
+      <p class="lede">Same control path as the workflow: receive, plan, look up, reuse or create, execute, hand off, respond.</p>
+      <ol id="events" class="events">
+        <li class="empty-line">No run yet.</li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>Agent Pool</h2>
+      <p class="lede">Healthy specialists stay registered for the life of this server process.</p>
+      <div id="pool" class="pool"></div>
+    </section>
+
+    <section class="card span-2">
+      <h2>MCP servers</h2>
+      <p class="lede">Five in-process servers. The gateway routes a tool call only when the calling agent is authorized for that server.</p>
+      <div id="mcp" class="servers"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
