@@ -1,14 +1,81 @@
 import { randomUUID } from 'node:crypto';
 import { EventLog } from './eventLog.js';
-import { catalogPlan } from './llmPlanner.js';
+import { catalogPlan, slugify } from './llmPlanner.js';
 
 /**
  * Pipeline Runner — coordinator and sequence owner.
  *
- * Request → analyse → pool lookup → reuse or factory → execute → hand off → respond.
+ * Request → analyse → align dynamic steps → pool lookup → reuse or factory → execute → hand off → respond.
  * The Agent Factory is called only when the pool has no healthy match.
  * agent_events rows are an audit log. Agents still receive the next payload directly.
  */
+
+function specialistSlug(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  return slugify(raw);
+}
+
+function storedLabel(agent) {
+  const specLabel = agent?.metadata?.spec?.label;
+  if (typeof specLabel === 'string' && specLabel.trim()) return specLabel.trim();
+  if (typeof agent?.label === 'string' && agent.label.trim()) return agent.label.trim();
+  return '';
+}
+
+function skillWords(skills = []) {
+  const words = new Set();
+  for (const skill of skills) {
+    for (const word of String(skill).toLowerCase().split(/[^a-z0-9]+/)) {
+      if (word) words.add(word);
+    }
+  }
+  return words;
+}
+
+function sharedSkillWords(skills, words) {
+  let count = 0;
+  for (const word of skillWords(skills)) {
+    if (words.has(word)) count += 1;
+  }
+  return count;
+}
+
+/**
+ * Point a dynamic step at a healthy dynamic agent when the capability slug
+ * or the label slug already exists. Skill wording does not block the match.
+ * Predefined steps are left untouched so catalogue lookup stays exact.
+ */
+function reconcileDynamicStep(step, pool) {
+  if (step?.origin !== 'dynamic') return;
+
+  const capabilitySlug = specialistSlug(step.capability);
+  const labelSlug = specialistSlug(step.label);
+  const candidates = pool.list({ status: 'healthy' }).filter((agent) => {
+    if (agent.metadata?.origin !== 'dynamic') return false;
+    const sameCapability = capabilitySlug && specialistSlug(agent.capability) === capabilitySlug;
+    const sameLabel = labelSlug && specialistSlug(storedLabel(agent)) === labelSlug;
+    return sameCapability || sameLabel;
+  });
+  if (!candidates.length) return;
+
+  const words = skillWords(step.skills);
+  candidates.sort((left, right) => {
+    const capabilityScore = (agent) => (
+      capabilitySlug && specialistSlug(agent.capability) === capabilitySlug ? 1 : 0
+    );
+    const byCapability = capabilityScore(right) - capabilityScore(left);
+    if (byCapability) return byCapability;
+    return sharedSkillWords(right.skills, words) - sharedSkillWords(left.skills, words);
+  });
+
+  const match = candidates[0];
+  step.capability = match.capability;
+  const label = storedLabel(match);
+  if (label) step.label = label;
+  step.skills = [...(match.skills ?? [])];
+}
+
 export async function runPipeline(userRequest, {
   pool,
   factory,
@@ -94,6 +161,7 @@ export async function runPipeline(userRequest, {
 
     for (let index = 0; index < resolved.steps.length; index += 1) {
       const step = resolved.steps[index];
+      reconcileDynamicStep(step, pool);
       const existing = pool.findMatching({
         capability: step.capability,
         skills: step.skills,

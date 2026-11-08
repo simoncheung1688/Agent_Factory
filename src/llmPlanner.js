@@ -18,14 +18,40 @@ function catalogSummary() {
   }).join('\n');
 }
 
-function plannerPrompt(request) {
+function dynamicAgentLabel(agent) {
+  if (typeof agent?.label === 'string' && agent.label.trim()) return agent.label.trim();
+  const specLabel = agent?.metadata?.spec?.label;
+  if (typeof specLabel === 'string' && specLabel.trim()) return specLabel.trim();
+  return '';
+}
+
+function dynamicAgentBlock(agents = []) {
+  const lines = [];
+  for (const agent of agents) {
+    const capability = typeof agent?.capability === 'string' ? agent.capability.trim() : '';
+    if (!capability) continue;
+    const skills = Array.isArray(agent.skills) ? agent.skills.map((skill) => String(skill)) : [];
+    lines.push(`- ${JSON.stringify({ capability, label: dynamicAgentLabel(agent), skills })}`);
+  }
+  if (!lines.length) return '';
+  return [
+    'Existing dynamic agents:',
+    ...lines,
+    'When the request fits an existing dynamic agent, copy that agent\'s capability, label, and skills exactly.',
+    'Do not invent a synonym capability, a new label, or a different skill list for the same specialist.',
+  ].join('\n');
+}
+
+function plannerPrompt(request, dynamicAgents = []) {
+  const existing = dynamicAgentBlock(dynamicAgents);
   return [
     'Return JSON only. No markdown.',
     'Shape: {"steps":[{"capability":"kebab-case","label":"Name","skills":["skill"],"tools":["tool.name"],"mcpServers":[],"policy":{"timeoutMs":8000,"maxToolCalls":4,"dataScope":"dynamic"},"task":"what this agent should do"}]}',
     'Use one or more steps. A step may reuse a known capability key when it fits.',
-    'When the request does not fit a known capability, invent a new capability key, label, skills, tools, and task.',
+    'When the request does not fit a known capability or an existing dynamic agent, invent a new capability key, label, skills, tools, and task.',
     'Known capabilities:',
     catalogSummary(),
+    ...(existing ? ['', existing] : []),
     '',
     `Request: ${request}`,
   ].join('\n');
@@ -123,7 +149,7 @@ export function stepsToPlan(steps) {
   };
 }
 
-/** Keyword catalogue plan used when a caller does not supply an LLM. */
+/** Keyword catalogue plan used when a caller does not supply an LLM. The pool is ignored. */
 export function catalogPlan(request) {
   const plan = planRequest(request);
   return stepsToPlan(plan.steps.map((step) => normalizeStep({ capability: step.capability })));
@@ -156,11 +182,12 @@ export async function completeWithPi(systemPrompt, userText, env = process.env) 
   return text;
 }
 
-export function createLlmPlanner({ complete = completeWithPi } = {}) {
+export function createLlmPlanner({ complete = completeWithPi, dynamicAgents = () => [] } = {}) {
   return async function plan(request) {
+    const listed = typeof dynamicAgents === 'function' ? dynamicAgents() : dynamicAgents;
     const text = await complete(
       'You plan specialist agents. Return JSON only.',
-      plannerPrompt(request),
+      plannerPrompt(request, Array.isArray(listed) ? listed : []),
     );
     return stepsToPlan(parsePlannerJson(text));
   };

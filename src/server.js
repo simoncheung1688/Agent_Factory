@@ -168,8 +168,18 @@ export function createApp({
   });
 }
 
-export function start(port = Number(process.env.PORT) || 3000, { logger = console, eventLogger = null, plan = null } = {}) {
-  const server = createApp({ logger, eventLogger, plan });
+export function start(port = Number(process.env.PORT) || 3000, {
+  logger = console,
+  eventLogger = null,
+  plan = null,
+  pool,
+} = {}) {
+  const server = createApp({
+    logger,
+    eventLogger,
+    plan,
+    ...(pool ? { pool } : {}),
+  });
   server.listen(port);
   return server;
 }
@@ -188,7 +198,16 @@ if (launchedDirectly) {
     );
   }
   const eventLogger = createEventLogger(process.env, console);
-  const server = start(undefined, { logger: console, eventLogger, plan: createLlmPlanner() });
+  const pool = new AgentPool();
+  const server = start(undefined, {
+    logger: console,
+    eventLogger,
+    pool,
+    plan: createLlmPlanner({
+      dynamicAgents: () => pool.list({ status: 'healthy' })
+        .filter((agent) => agent.metadata?.origin === 'dynamic'),
+    }),
+  });
   server.on('listening', () => {
     const { port } = server.address();
     console.log(`Agent Factory demo ready at http://localhost:${port}`);
